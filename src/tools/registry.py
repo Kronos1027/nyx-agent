@@ -68,6 +68,9 @@ class ToolRegistry:
     def names(self) -> list[str]:
         return sorted(self._tools)
 
+    def available_tools(self) -> list[str]:
+        return self.names()
+
     def spec(self, name: str) -> ToolSpec | None:
         entry = self._tools.get(name)
         return entry[0] if entry else None

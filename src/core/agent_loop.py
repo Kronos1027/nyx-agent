@@ -78,6 +78,8 @@ class AgentLoop:
         self.history: list[dict] = []
         self.memory = memory
         self.verifier = verifier or ActionVerifier()
+        self.tool_failure_counts: dict[str, int] = {}
+        self.disabled_tools: set[str] = set()
 
     # ------------------------------------------------------------------
     # Modo de permissão (seção 4.1)
@@ -238,6 +240,32 @@ class AgentLoop:
             self._remember(user_input, response)
             return LoopResult(response=response, executed=False)
 
+        # Circuit Breaker check
+        if action.type in self.disabled_tools:
+            result = ToolResult(
+                ok=False,
+                error=f"Circuit breaker ativo: ferramenta '{action.type}' desativada após 3 falhas consecutivas.",
+                meta={"circuit_breaker": True},
+            )
+            response.speech_output = (
+                f"Aviso do Grande Sábio: A ferramenta '{action.type}' foi desativada automaticamente pelo Circuit Breaker "
+                "após 3 falhas consecutivas para proteger o sistema contra loops de erro."
+            )
+            self.audit.log_decision(
+                user_input=user_input,
+                response_raw=raw,
+                parse_ok=True,
+                parse_error=None,
+                action_type=action.type,
+                action_params=action.params,
+                requires_confirmation=False,
+                executed=False,
+                result_ok=False,
+                result_output=result.error,
+                mode=self.mode_name,
+            )
+            return LoopResult(response=response, executed=False, tool_result=result)
+
         # 4) Execução via registry (única porta de execução)
         result = self.registry.execute(action.type, action.params)
 
@@ -253,6 +281,15 @@ class AgentLoop:
             details=verification.details,
             recovery=verification.suggested_recovery_route,
         )
+
+        # Atualiza Circuit Breaker
+        if not result.ok or not verification.verified:
+            self.tool_failure_counts[action.type] = self.tool_failure_counts.get(action.type, 0) + 1
+            if self.tool_failure_counts[action.type] >= 3:
+                self.disabled_tools.add(action.type)
+                self.audit.log_event("circuit_breaker_triggered", tool=action.type, failures=3)
+        else:
+            self.tool_failure_counts[action.type] = 0
 
         # Síntese ReAct pós-ferramenta:
         # Se for modelo real e a ação gerou saída ou erro, alimenta a observação de volta
@@ -338,8 +375,26 @@ class AgentLoop:
             self._remember(user_input, resp)
             return LoopResult(response=resp, executed=False)
 
+        if a_type in self.disabled_tools:
+            resp = NyxResponse(
+                emotion="error",
+                speech_output=f"Aviso do Grande Sábio: Ferramenta '{a_type}' está desativada pelo Circuit Breaker.",
+            )
+            return LoopResult(
+                response=resp,
+                executed=False,
+                tool_result=ToolResult(ok=False, error=f"Circuit breaker ativo para '{a_type}'."),
+            )
+
         result = self.registry.execute(a_type, params)
         verification = self.verifier.verify(a_type, params, result)
+        if not result.ok or not verification.verified:
+            self.tool_failure_counts[a_type] = self.tool_failure_counts.get(a_type, 0) + 1
+            if self.tool_failure_counts[a_type] >= 3:
+                self.disabled_tools.add(a_type)
+                self.audit.log_event("circuit_breaker_triggered", tool=a_type, failures=3)
+        else:
+            self.tool_failure_counts[a_type] = 0
         self.audit.log_event(
             "confirmed_execution",
             action_type=a_type,
@@ -383,6 +438,15 @@ class AgentLoop:
 
         self._remember(user_input, resp, result)
         return LoopResult(response=resp, executed=True, tool_result=result)
+
+    def reset_circuit_breaker(self, tool_name: str | None = None) -> None:
+        """Reinicia o contador de falhas e desbloqueia ferramentas no circuit breaker."""
+        if tool_name:
+            self.tool_failure_counts.pop(tool_name, None)
+            self.disabled_tools.discard(tool_name)
+        else:
+            self.tool_failure_counts.clear()
+            self.disabled_tools.clear()
 
     # ------------------------------------------------------------------
     # Política de confirmação (seção 4.2)
