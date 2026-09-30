@@ -8,21 +8,29 @@ from __future__ import annotations
 
 import logging
 import time
+import warnings as _w
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, Optional
 
 log = logging.getLogger(__name__)
 
+HAS_NVML = False
+NVML_HANDLE = None
+
 try:
-    import pynvml
+    # Suprime FutureWarning do pynvml durante o import (o aviso é emitido
+    # dentro de pynvml/__init__.py ao carregar — catch_warnings é a única
+    # forma confiável de interceptá-lo antes que chegue ao pytest/logging)
+    with _w.catch_warnings():
+        _w.filterwarnings("ignore", category=FutureWarning)
+        import pynvml  # pynvml namespace do nvidia-ml-py
 
     pynvml.nvmlInit()
     HAS_NVML = True
     NVML_HANDLE = pynvml.nvmlDeviceGetHandleByIndex(0)
 except Exception:
-    HAS_NVML = False
-    NVML_HANDLE = None
+    pass
 
 
 class ModelRole(str, Enum):

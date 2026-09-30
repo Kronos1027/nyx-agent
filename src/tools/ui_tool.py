@@ -173,7 +173,7 @@ class UITool:
             import mss
             import mss.tools
 
-            with mss.mss() as sct:
+            with mss.MSS() as sct:  # mss.MSS() — API pública (mss.mss foi depreciado)
                 monitor = sct.monitors[1] if len(sct.monitors) > 1 else sct.monitors[0]
                 sct_img = sct.grab(monitor)
                 mss.tools.to_png(sct_img.rgb, sct_img.size, output=str(target_path))

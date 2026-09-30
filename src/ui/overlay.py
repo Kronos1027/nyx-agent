@@ -377,6 +377,12 @@ class OverlayWindow(QWidget):
         self._is_dragging = False
         self.avatar_label.setCursor(Qt.CursorShape.OpenHandCursor)
 
+    def closeEvent(self, event) -> None:  # type: ignore[override]
+        """Encerra TTS de forma limpa ao fechar a janela."""
+        if hasattr(self, "tts") and self.tts:
+            self.tts.shutdown()
+        super().closeEvent(event)
+
     # ----------------------------------------------------------------------
     # API de Estados e Fala
     # ----------------------------------------------------------------------
@@ -414,6 +420,9 @@ class OverlayWindow(QWidget):
         if not text:
             return
         self.txt_input.clear()
+        # Interrompe fala atual antes de processar novo prompt
+        if hasattr(self, "tts") and self.tts:
+            self.tts.stop_current()
         self.process_prompt(text)
 
     def _on_mic_clicked(self) -> None:

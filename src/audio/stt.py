@@ -145,14 +145,22 @@ class SpeechToText:
         return self.transcribe_array(audio)
 
     def process_wake_word(self, text: str) -> tuple[bool, str]:
-        """Detecta 'Ei Nyx' ou 'Nyx' no início da fala e extrai o comando real.
+        """Detecta wake word ('Ei Nyx', 'Hey Nyx', 'Oi Nyx', etc.) e extrai o comando real.
+
+        Variantes aceitas (Whisper às vezes transcreve de formas ligeiramente diferentes):
+          - "Ei Nyx", "Hey Nyx", "Oi Nyx", "Olá Nyx", "E Nyx"
+          - "Nyx" isolado no início da frase
 
         Retorna: (has_wake_word, prompt_restante)
         """
         cleaned = text.strip()
-        wake_pattern = re.compile(r"^(ei,?\s+)?nyx[,\s]*", re.IGNORECASE)
+        # Padrão amplo: salutação opcional + "Nyx" + separador
+        wake_pattern = re.compile(
+            r"^(?:(?:ei|hey|oi|ol[aá]|e)[,\s]+)?nyx[,.:!?\s]*",
+            re.IGNORECASE,
+        )
         match = wake_pattern.match(cleaned)
         if match:
-            prompt = cleaned[match.end() :].strip()
+            prompt = cleaned[match.end():].strip()
             return True, prompt
         return False, cleaned
